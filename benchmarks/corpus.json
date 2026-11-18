@@ -1,0 +1,11 @@
+{
+  "status": "awaiting-owner-source-files",
+  "engine_order": ["supoclip", "openshorts", "medusa"],
+  "inputs": [
+    {"id": "talking-head", "path": "/data/benchmarks/talking-head.mp4", "seconds": 600, "profile": "talking_head", "permission": ""},
+    {"id": "gameplay-facecam", "path": "/data/benchmarks/gameplay-facecam.mp4", "seconds": 600, "profile": "gaming", "permission": ""},
+    {"id": "gameplay-visual", "path": "/data/benchmarks/gameplay-visual.mp4", "seconds": 600, "profile": "gaming", "permission": ""},
+    {"id": "recorded-live", "path": "/data/benchmarks/recorded-live.mp4", "seconds": 300, "profile": "talking_head", "permission": ""}
+  ],
+  "qualification": {"minimum_usable_clips_per_input": 2, "maximum_concurrent_jobs": 1, "restart_test_required": true, "review_required": true}
+}

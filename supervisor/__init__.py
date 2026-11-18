@@ -1,0 +1,1 @@
+"""Local clipping supervisor."""

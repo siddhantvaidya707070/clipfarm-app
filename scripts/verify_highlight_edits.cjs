@@ -1,0 +1,68 @@
+const { chromium } = require('playwright');
+const fs = require('fs');
+(async () => {
+  const fixture = JSON.parse(fs.readFileSync('data/highlights/ui-verification.json', 'utf8'));
+  const login = JSON.parse(fs.readFileSync('secrets/native_login.json', 'utf8'));
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const base = `http://localhost:3107/api/highlights/${fixture.id}`;
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const auth = await page.request.post('http://localhost:3107/api/auth/sign-in/email', { data: login, headers: { Origin: 'http://localhost:3107' } });
+    if (!auth.ok()) throw new Error('Private local sign-in failed');
+    await page.goto('http://localhost:3107/highlights', { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'Highlight UI verification', exact: true }).waitFor();
+    let stream = await (await page.request.get(base)).json();
+    const original = stream.clips[0];
+    const article = page.getByRole('article').first();
+    await article.locator('summary').filter({ hasText: 'Edit timing' }).click();
+    const form = article.getByRole('form');
+    if ((await form.getByLabel('Moment type').locator('option').allTextContents()).length !== 6) throw new Error('Incorrect type options');
+    await form.getByLabel('Moment type').selectOption('FUNNY');
+    await form.getByLabel('Title', { exact: true }).fill('Edited verification moment');
+    await form.getByLabel('In point (source seconds)').fill(String(original.start + 1));
+    await form.getByLabel('Out point (source seconds)').fill(String(original.end - 1));
+    await form.locator('select[name=output_format]').selectOption('vertical');
+    await form.locator('select[name=export_height]').selectOption('720');
+    await form.getByRole('button', { name: 'Save clip changes' }).click();
+    try { await page.getByText('Changes saved.', { exact: true }).waitFor({ timeout: 8000 }); }
+    catch { await page.screenshot({ path: 'data/highlights-edit-error.png', fullPage: true }); throw new Error('Clip save failed: ' + (await page.getByRole('alert').allTextContents()).join('; ')); }
+    stream = await (await page.request.get(base)).json();
+    if (stream.clips[0].type !== 'FUNNY' || stream.clips[0].export_state !== 'stale') throw new Error('Saved edit did not persist');
+    if (stream.clips[0].start !== original.start + 1) throw new Error('Edited boundary did not persist');
+    await page.getByRole('button', { name: 'Re-export clip', exact: true }).click();
+    await page.getByRole('link', { name: 'Download MP4', exact: true }).waitFor({ timeout: 120000 });
+    const video = page.locator('video').first();
+    await video.evaluate(element => { element.muted = true; return element.play(); });
+    await page.waitForFunction(() => [...document.querySelectorAll('video')].some(video => video.currentTime > 0 && !video.error));
+    const size = await video.evaluate(element => [element.videoWidth, element.videoHeight]);
+    if (size[0] !== 720 || size[1] !== 1280) throw new Error('Vertical export dimensions are incorrect');
+    const range = await page.request.get(`${base}/files/${fixture.clip_id}.mp4`, { headers: { Range: 'bytes=0-1023' } });
+    if (range.status() !== 206 || (await range.body()).length !== 1024) throw new Error('Video range proxy failed');
+    const srt = await page.request.get(`${base}/files/${fixture.clip_id}.srt`);
+    if (!srt.ok() || !(await srt.text()).includes('-->')) throw new Error('SRT download failed');
+    await page.screenshot({ path: 'data/highlights-edited-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Populated mobile layout overflows');
+    await page.screenshot({ path: 'data/highlights-edited-mobile.png', fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const manual = page.getByRole('form', { name: 'Add manual highlight' });
+    await page.getByText('Add a moment manually', { exact: true }).click();
+    const start = original.start >= 30 ? original.start - 30 : original.end + 5;
+    await manual.getByLabel('Start (source seconds)').fill(String(start));
+    await manual.getByLabel('End (source seconds)').fill(String(start + 25));
+    await manual.getByLabel('Moment type').selectOption('OTHER');
+    await manual.getByLabel('Title', { exact: true }).fill('Manual verification moment');
+    await manual.getByRole('button', { name: 'Add highlight', exact: true }).click();
+    await page.getByRole('article').filter({ hasText: 'Manual verification moment' }).waitFor();
+    const articles = page.getByRole('article');
+    for (let index = 0; index < 2; index++) await articles.nth(index).locator('input[type=checkbox]').first().check();
+    await page.getByRole('button', { name: 'Merge two selected', exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll('article').length === 1);
+    stream = await (await page.request.get(base)).json();
+    if (stream.clips.length !== 1 || stream.clips[0].end - stream.clips[0].start > 90) throw new Error('Merge failed');
+    await page.getByRole('button', { name: 'Delete highlight…', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete highlight', exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll('article').length === 0);
+    console.log('Real clip timing/type edits, caption regeneration, 9:16 re-export, playback, HTTP ranges, SRT, manual clip, merge and delete passed.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error.message); process.exitCode = 1; });

@@ -1,0 +1,20 @@
+{
+  "supoclip": {
+    "repository": "https://github.com/FujiwaraChoki/supoclip",
+    "commit": "9b1945cf7620e132291a575cc43a3fd266ddfbe0",
+    "archive_sha256": "f86363a8ccb43a0f1f3af7bb66636b36cd1e34b3d91b10da62661736b2a9d859"
+  },
+  "qualified": false,
+  "openshorts": {
+    "repository": "https://github.com/mutonby/openshorts",
+    "commit": "fe86366808e428f393d765b785e23845ac2b3637",
+    "archive_sha256": "3ff45f1058f4c5b57ef4136fdfb38e5173ef74706a2e7350f0a9c975a6ff7184",
+    "qualified": false
+  },
+  "medusa": {
+    "repository": "https://github.com/Edualnog/medusa-clip",
+    "commit": "6f3cd45b4ccbb2efe66fdb8d9ea952e66db8fb8d",
+    "archive_sha256": "bb79ff153de8559dcc52db102100cc6ca8e0fe89aa97eeb945e63a3ae3c77f10",
+    "qualified": false
+  }
+}

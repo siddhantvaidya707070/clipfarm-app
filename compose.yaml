@@ -1,0 +1,251 @@
+name: clipfarm
+x-engine-env: &engine-env
+  DATABASE_URL: postgresql+asyncpg://supoclip:${POSTGRES_PASSWORD}@postgres:5432/supoclip
+  REDIS_HOST: redis
+  REDIS_PORT: '6379'
+  SELF_HOST: 'true'
+  BACKEND_AUTH_SECRET: ${BACKEND_AUTH_SECRET}
+  ALLOW_UNSIGNED_BACKEND_AUTH: 'false'
+  APP_SETTINGS_ENCRYPTION_KEY: ${APP_SETTINGS_ENCRYPTION_KEY}
+  OPENAI_API_KEY: ${GATEWAY_TOKEN}
+  OPENAI_BASE_URL: http://supervisor:8787/v1
+  LLM: openai:gpt-6-luna
+  RERANK_LLM: openai:gpt-6-luna
+  AI_EDIT_MODEL: openai:gpt-5.4-mini
+  TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+  OPENAI_TRANSCRIPTION_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-transcribe}
+  OPENAI_TRANSCRIPTION_CONCURRENCY: ${OPENAI_TRANSCRIPTION_CONCURRENCY:-8}
+  OPENAI_TRANSCRIPTION_CHUNK_SECONDS: '300'
+  USE_LOCAL_WHISPER: ${USE_LOCAL_WHISPER:-false}
+  WHISPER_MODEL_SIZE: small
+  TRANSCRIPTION_LANGUAGE: en
+  VIDEO_JOB_USER_CONCURRENCY: '1'
+  MAX_CLIPS: '20'
+  FAST_MODE_MAX_CLIPS: '20'
+  FAST_HIGHLIGHTS_ENABLED: 'true'
+  FAST_PREFER_YOUTUBE_CAPTIONS: 'true'
+  FAST_VALIDATE_AUDIO_ACTIVITY: 'true'
+  FAST_AI_SELECTION_ENABLED: 'true'
+  FAST_AI_SELECTION_TIMEOUT_SECONDS: '10'
+  FAST_AI_SELECTION_MODEL: 'gpt-6-luna'
+  FAST_STREAMER_LAYOUT_ENABLED: 'true'
+  FAST_STREAMER_TOP_FRACTION: '0.35'
+  FAST_HIGHLIGHTS_PER_HOUR: '18'
+  FAST_HIGHLIGHTS_MIN_PER_HOUR: '15'
+  FAST_HIGHLIGHTS_MAX_PER_HOUR: '20'
+  FAST_HIGHLIGHTS_RENDER_WORKERS: '4'
+  FAST_HIGHLIGHTS_EXPORT_HEIGHT: '720'
+  YOUTUBE_MAX_HEIGHT: '720'
+  YOUTUBE_SECTION_PADDING_SECONDS: '3'
+  YOUTUBE_DIRECT_FRAGMENT_CONCURRENCY: '16'
+  YOUTUBE_DIRECT_SOCKET_TIMEOUT: '6'
+  YOUTUBE_WINDOW_CONCURRENCY: '4'
+  MAX_VIDEO_DURATION: '10800'
+  TEMP_DIR: /app/temp
+  OUTPUT_DIR: /app/clips
+  MEDIA_LOCAL_VOLUME_ID: clipfarm-local
+  STORAGE_BACKEND: local
+  APIFY_STREAM_PROVIDERS: 'false'
+  TWITCH_DOWNLOAD_PROVIDERS: direct
+  KICK_DOWNLOAD_PROVIDERS: direct_retry
+  YOUTUBE_DOWNLOAD_PROVIDER: yt_dlp
+  ENABLE_BROLL: 'false'
+  SPEAKER_FRAMING: 'true'
+  HOOK_FIRST_TEASER: 'false'
+  SOCIAL_PUBLISHING_ACCESS: admins
+  SOCIAL_PUBLISHING_PROVIDERS: youtube
+  SOCIAL_OAUTH_REDIRECT_BASE_URL: http://localhost:3107
+  NEXT_PUBLIC_APP_URL: http://localhost:3107
+  CORS_ORIGINS: http://localhost:3107
+  YOUTUBE_OAUTH_CLIENT_ID: ${YOUTUBE_OAUTH_CLIENT_ID:-}
+  YOUTUBE_OAUTH_CLIENT_SECRET: ${YOUTUBE_OAUTH_CLIENT_SECRET:-}
+  OMP_NUM_THREADS: '4'
+  MKL_NUM_THREADS: '4'
+x-engine-volumes: &engine-volumes
+  - ./supervisor/transcription.py:/app/clipfarm_transcription.py:ro
+  - ./vendor/supoclip/backend/src/config.py:/app/src/config.py:ro
+  - ./vendor/supoclip/backend/src/media/common.py:/app/src/media/common.py:ro
+  - ./vendor/supoclip/backend/src/media/transcription.py:/app/src/media/transcription.py:ro
+  - ./vendor/supoclip/backend/src/repositories/task_checkpoint_repository.py:/app/src/repositories/task_checkpoint_repository.py:ro
+  - ./vendor/supoclip/backend/src/ai.py:/app/src/ai.py:ro
+  - ./vendor/supoclip/backend/src/services/video_service.py:/app/src/services/video_service.py:ro
+  - ./vendor/supoclip/backend/src/services/task_service.py:/app/src/services/task_service.py:ro
+  - ./data/engine-temp:/app/temp
+  - ./data/engine-clips:/app/clips
+  - ./data/models:/root/.cache
+services:
+  frontend:
+    build:
+      context: ./vendor/supoclip
+      dockerfile: frontend/Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8788
+        NEXT_PUBLIC_APP_URL: http://localhost:3107
+        NEXT_PUBLIC_SELF_HOST: 'true'
+        NEXT_PUBLIC_SOCIAL_PUBLISHING: live
+    image: clipfarm-supoclip-frontend:local
+    restart: unless-stopped
+    ports: ['127.0.0.1:3107:3107']
+    volumes:
+      - ./vendor/supoclip/CHANGELOG.md:/app/CHANGELOG.md:ro
+    environment:
+      DATABASE_URL: postgresql://supoclip:${POSTGRES_PASSWORD}@postgres:5432/supoclip
+      BACKEND_INTERNAL_URL: http://backend:8000
+      BACKEND_AUTH_SECRET: ${BACKEND_AUTH_SECRET}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: http://localhost:3107
+      DISABLE_SIGN_UP: 'true'
+      NEXT_PUBLIC_APP_URL: http://localhost:3107
+      NEXT_PUBLIC_API_URL: http://localhost:8788
+      NEXT_PUBLIC_SELF_HOST: 'true'
+      NEXT_PUBLIC_SOCIAL_PUBLISHING: live
+      CAPTURE_INTERNAL_URL: http://supervisor:8787
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, -f, 'http://localhost:3107/api/auth/get-session']
+      interval: 15s
+      start_period: 90s
+      retries: 10
+  postgres:
+    image: postgres:15-alpine@sha256:eab009ce9447a891d9482702d370bbf132c18563bb87cfdcc2b815c6d3b0372f
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supoclip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: supoclip
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./vendor/supoclip/init.sql:/docker-entrypoint-initdb.d/01-supoclip.sql:ro
+      - ./data/init-supervisor.sql:/docker-entrypoint-initdb.d/02-supervisor.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U supoclip -d supoclip']
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    command: [redis-server, --appendonly, 'yes']
+    restart: unless-stopped
+    volumes: [redis:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      retries: 10
+  supervisor:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      SUP0CLIP_URL: http://backend:8000
+      PYTHONUNBUFFERED: '1'
+    ports: ['127.0.0.1:8787:8787']
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8787/health")']
+      interval: 15s
+      start_period: 30s
+      retries: 10
+  backend:
+    build:
+      context: ./vendor/supoclip/backend
+      args: {BACKEND_CPU_ONLY: 'true'}
+    image: clipfarm-supoclip:local
+    restart: unless-stopped
+    environment: *engine-env
+    volumes: *engine-volumes
+    ports: ['127.0.0.1:8788:8000']
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      supervisor: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, -f, 'http://localhost:8000/health/db']
+      interval: 15s
+      start_period: 120s
+      retries: 20
+  worker:
+    image: clipfarm-supoclip:local
+    command: [.venv/bin/python, -m, arq, clipfarm_worker.Settings]
+    restart: unless-stopped
+    environment: *engine-env
+    volumes:
+      - ./supervisor/transcription.py:/app/clipfarm_transcription.py:ro
+      - ./vendor/supoclip/backend/src/config.py:/app/src/config.py:ro
+      - ./vendor/supoclip/backend/src/media/common.py:/app/src/media/common.py:ro
+      - ./vendor/supoclip/backend/src/media/transcription.py:/app/src/media/transcription.py:ro
+      - ./vendor/supoclip/backend/src/repositories/task_checkpoint_repository.py:/app/src/repositories/task_checkpoint_repository.py:ro
+      - ./data/engine-temp:/app/temp
+      - ./data/engine-clips:/app/clips
+      - ./data/models:/root/.cache
+      - ./scripts/supoclip_worker.py:/app/clipfarm_worker.py:ro
+      - ./scripts/worker_settings.py:/app/worker_settings.py:ro
+      - ./vendor/supoclip/backend/src/ai.py:/app/src/ai.py:ro
+      - ./vendor/supoclip/backend/src/services/video_service.py:/app/src/services/video_service.py:ro
+      - ./vendor/supoclip/backend/src/services/task_service.py:/app/src/services/task_service.py:ro
+    depends_on:
+      backend: {condition: service_healthy}
+  scheduler:
+    profiles: [legacy]
+    build: .
+    command: [python, -m, supervisor.worker]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      SUP0CLIP_URL: http://backend:8000
+      PYTHONUNBUFFERED: '1'
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+    depends_on:
+      supervisor: {condition: service_healthy}
+  n8n:
+    profiles: [legacy]
+    image: n8nio/n8n:2.47.5@sha256:e29e9cc965a16d07d989f115f729f8a1c7aff58688d4850247fa495d4d7aae2f
+    restart: unless-stopped
+    environment:
+      GENERIC_TIMEZONE: Asia/Kolkata
+      TZ: Asia/Kolkata
+      N8N_HOST: localhost
+      N8N_PORT: '5678'
+      N8N_PROTOCOL: http
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_PERSONALIZATION_ENABLED: 'false'
+      N8N_SECURE_COOKIE: 'false'
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
+    ports: ['127.0.0.1:5678:5678']
+    volumes: [n8n:/home/node/.n8n]
+  capture:
+    build: .
+    image: clipfarm-supervisor:local
+    command: [python, -m, supervisor.native_capture]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      SUP0CLIP_URL: http://backend:8000
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets:ro
+    depends_on:
+      backend: {condition: service_healthy}
+  cron:
+    image: clipfarm-supoclip:local
+    command: [.venv/bin/python, -m, arq, src.workers.cron_worker.CronWorkerSettings]
+    restart: unless-stopped
+    environment: *engine-env
+    volumes: *engine-volumes
+    depends_on:
+      backend: {condition: service_healthy}
+volumes:
+  postgres:
+  redis:
+  n8n:

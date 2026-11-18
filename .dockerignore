@@ -1,0 +1,7 @@
+vendor
+.venv
+data
+secrets
+.env
+.pytest_cache
+**/__pycache__
